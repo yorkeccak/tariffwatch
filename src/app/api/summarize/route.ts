@@ -93,10 +93,10 @@ ${content}`;
     }).join("\n\n---\n\n");
 
     const stream = await openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5.1",
       stream: true,
-      temperature: 0.3,
-      max_tokens: 3000,
+      reasoning_effort: "none",
+      max_completion_tokens: 3000,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
