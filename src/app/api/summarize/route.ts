@@ -72,12 +72,14 @@ export async function POST(request: NextRequest) {
 
     const openai = new OpenAI({ apiKey });
 
-    // Format results as numbered context for the model
-    const context = results.map((r: any, i: number) => {
+    // Truncate filing content to keep prompt manageable for fast TTFT
+    const MAX_CONTENT_CHARS = 4000;
+    const context = results.slice(0, 4).map((r: any, i: number) => {
       const meta = r.metadata || {};
       const date = r.publication_date || meta.date || "Unknown date";
       const formType = meta.form_type || "SEC Filing";
-      const content = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+      const raw = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+      const content = raw.length > MAX_CONTENT_CHARS ? raw.slice(0, MAX_CONTENT_CHARS) + "\n[...truncated]" : raw;
 
       return `[Source ${i + 1}]
 Title: ${r.title}
@@ -91,16 +93,17 @@ ${content}`;
     }).join("\n\n---\n\n");
 
     const stream = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4.1",
       stream: true,
-      max_completion_tokens: 3000,
+      temperature: 0.3,
+      max_tokens: 3000,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Analyze the tariff exposure for **${companyName || ticker}** (${ticker}) based on these ${results.length} SEC filing excerpts.
+          content: `Analyze the tariff exposure for **${companyName || ticker}** (${ticker}) based on these ${Math.min(results.length, 4)} SEC filing excerpts.
 
-IMPORTANT: Cite by wrapping text in {{cite:N}}...{{/cite}} where N is the source number (1-${results.length}).
+IMPORTANT: Cite by wrapping text in {{cite:N}}...{{/cite}} where N is the source number (1-${Math.min(results.length, 4)}).
 
 ---
 
@@ -115,7 +118,7 @@ ${context}`,
       async start(controller) {
         // Send sources metadata first
         const sourcesPayload = JSON.stringify({
-          sources: results.map((r: any, i: number) => ({
+          sources: results.slice(0, 4).map((r: any, i: number) => ({
             index: i + 1,
             title: r.title,
             url: r.url,

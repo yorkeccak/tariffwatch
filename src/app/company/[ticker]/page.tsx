@@ -920,11 +920,15 @@ export default function CompanyPage({ params }: { params: Promise<{ ticker: stri
       setStreaming(true);
       contentRef.current = "";
 
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 90_000);
+
       try {
         const res = await fetch("/api/summarize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ticker: resolvedTicker, companyName: resolvedName, results: filings }),
+          signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -980,8 +984,12 @@ export default function CompanyPage({ params }: { params: Promise<{ ticker: stri
         }
         setSummary(contentRef.current);
       } catch (err: unknown) {
-        setSummaryError(err instanceof Error ? err.message : "Failed to generate summary");
+        const msg = err instanceof Error && err.name === "AbortError"
+          ? "Analysis timed out. Try refreshing the page."
+          : err instanceof Error ? err.message : "Failed to generate summary";
+        setSummaryError(msg);
       } finally {
+        clearTimeout(timeout);
         setLoadingSummary(false);
         setStreaming(false);
       }
