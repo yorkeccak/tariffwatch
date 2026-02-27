@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, use, useRef, useMemo, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, FileText, Loader2, ChevronUp,
@@ -83,6 +83,85 @@ const STATUS_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
+function stripCitations(text: string): string {
+  return text.replace(/\{\{cite:\d+\}\}|\{\{\/cite\}\}/g, "");
+}
+
+function renderBold(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const regex = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    parts.push(
+      <span key={key++} data-streamdown="strong">
+        {match[1]}
+      </span>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+  if (parts.length === 0) {
+    parts.push(text);
+  }
+
+  return parts;
+}
+
+function renderInline(
+  text: string,
+  filings: SearchResult[],
+  onClickSource: (i: number) => void
+): ReactNode[] {
+  const elements: ReactNode[] = [];
+  const citationRegex = /\{\{cite:(\d+)\}\}([\s\S]*?)\{\{\/cite\}\}/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+
+  while ((match = citationRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      elements.push(
+        <span key={`t-${key++}`}>
+          {renderBold(text.substring(lastIndex, match.index))}
+        </span>
+      );
+    }
+
+    const srcIdx = parseInt(match[1], 10);
+    elements.push(
+      <CitedSpan
+        key={`c-${key++}`}
+        sourceIndex={srcIdx}
+        filing={filings[srcIdx - 1]}
+        onClickSource={onClickSource}
+      >
+        {renderBold(match[2])}
+      </CitedSpan>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    elements.push(
+      <span key={`t-${key++}`}>
+        {renderBold(text.substring(lastIndex))}
+      </span>
+    );
+  }
+
+  return elements;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -148,23 +227,25 @@ function updateHistoryStatus(id: string, status: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Inline Citation with HoverCard
+// Cited Text Span with HoverCard
 // ---------------------------------------------------------------------------
 
-function CitationBadge({
-  index,
+function CitedSpan({
+  children,
+  sourceIndex,
   filing,
   onClickSource,
 }: {
-  index: number;
+  children: ReactNode;
+  sourceIndex: number;
   filing: SearchResult | undefined;
   onClickSource: (i: number) => void;
 }) {
   if (!filing) {
     return (
-      <span className="citation-pill">
-        <img src="https://www.google.com/s2/favicons?domain=sec.gov&sz=32" alt="" className="citation-favicon" />
-        <span>{index}</span>
+      <span className="cited-text">
+        {children}
+        <sup className="cited-number">{sourceIndex}</sup>
       </span>
     );
   }
@@ -174,26 +255,25 @@ function CitationBadge({
   const highlighted = highlightTariffTerms(preview);
 
   return (
-    <HoverCardPrimitive.Root openDelay={0} closeDelay={150}>
+    <HoverCardPrimitive.Root openDelay={100} closeDelay={200}>
       <HoverCardPrimitive.Trigger asChild>
-        <button
-          onClick={() => onClickSource(index - 1)}
-          className="citation-pill"
+        <span
+          className="cited-text cursor-pointer"
+          onClick={() => onClickSource(sourceIndex - 1)}
         >
-          <img src="https://www.google.com/s2/favicons?domain=sec.gov&sz=32" alt="" className="citation-favicon" />
-          <span>{index}</span>
-        </button>
+          {children}
+          <sup className="cited-number">{sourceIndex}</sup>
+        </span>
       </HoverCardPrimitive.Trigger>
       <HoverCardPrimitive.Portal>
         <HoverCardPrimitive.Content
-          className="z-[99999] w-[380px] rounded-lg border border-border/60 bg-popover text-popover-foreground shadow-lg outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
+          className="z-[99999] w-[400px] rounded-lg border border-border/60 bg-popover text-popover-foreground shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2"
           side="top"
-          sideOffset={6}
+          sideOffset={8}
           align="center"
           collisionPadding={12}
           avoidCollisions
         >
-          {/* Header */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30 bg-muted/20 rounded-t-lg">
             <img src="https://www.google.com/s2/favicons?domain=sec.gov&sz=32" alt="" className="w-4 h-4 rounded-sm" />
             <div className="flex-1 min-w-0">
@@ -207,17 +287,13 @@ function CitationBadge({
               </div>
             </div>
           </div>
-          {/* Content preview */}
           <div className="px-3 py-2.5 max-h-[200px] overflow-y-auto">
             <div className="text-[11px] text-muted-foreground leading-relaxed tariff-highlights">
               <Streamdown mode="static">{highlighted}</Streamdown>
             </div>
           </div>
-          {/* Footer */}
           <div className="flex items-center justify-between px-3 py-2 border-t border-border/20 bg-muted/10 rounded-b-lg">
-            <span className="text-[9px] text-muted-foreground/50 italic">
-              Raw XML converted to markdown
-            </span>
+            <span className="text-[9px] text-muted-foreground/50 italic">SEC Filing Preview</span>
             {filing.url && (
               <a
                 href={filing.url}
@@ -238,7 +314,7 @@ function CitationBadge({
 }
 
 // ---------------------------------------------------------------------------
-// Citation-aware renderer: parses [N](url) and renders React components
+// Citation-aware renderer: parses {{cite:N}}...{{/cite}} into hoverable spans
 // ---------------------------------------------------------------------------
 
 function CitationRenderer({
@@ -250,49 +326,56 @@ function CitationRenderer({
   filings: SearchResult[];
   onClickSource: (i: number) => void;
 }) {
-  // Parse text to split into text segments and citation markers
-  const segments = useMemo(() => {
-    const parts: Array<{ type: "text"; content: string } | { type: "citation"; index: number }> = [];
-    // Match [N](url) patterns - standard markdown links where text is a number
-    const citationRegex = /\[(\d+)\]\([^)]+\)/g;
-    let lastIndex = 0;
-    let match;
-
-    while ((match = citationRegex.exec(text)) !== null) {
-      // Add text before this citation
-      if (match.index > lastIndex) {
-        parts.push({ type: "text", content: text.substring(lastIndex, match.index) });
-      }
-      parts.push({ type: "citation", index: parseInt(match[1], 10) });
-      lastIndex = match.index + match[0].length;
-    }
-
-    // Remaining text
-    if (lastIndex < text.length) {
-      parts.push({ type: "text", content: text.substring(lastIndex) });
-    }
-
-    return parts;
-  }, [text]);
+  const blocks = useMemo(() => text.split(/\n\n+/).filter(b => b.trim()), [text]);
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed tariff-highlights">
-      {segments.map((seg, i) => {
-        if (seg.type === "citation") {
+    <div className="space-y-4 text-sm leading-relaxed tariff-highlights">
+      {blocks.map((block, bi) => {
+        const trimmed = block.trim();
+
+        if (trimmed.startsWith("## ")) {
           return (
-            <CitationBadge
-              key={`c-${i}`}
-              index={seg.index}
-              filing={filings[seg.index - 1]}
-              onClickSource={onClickSource}
-            />
+            <h2 key={bi} className="text-lg font-semibold text-foreground mt-6 mb-2 first:mt-0">
+              {renderInline(trimmed.slice(3), filings, onClickSource)}
+            </h2>
           );
         }
-        // Render text with Streamdown (static mode - no animation)
+        if (trimmed.startsWith("### ")) {
+          return (
+            <h3 key={bi} className="text-base font-medium text-foreground mt-4 mb-1">
+              {renderInline(trimmed.slice(4), filings, onClickSource)}
+            </h3>
+          );
+        }
+
+        const lines = trimmed.split("\n");
+        if (lines[0].match(/^[-*]\s/)) {
+          return (
+            <ul key={bi} className="list-disc pl-5 space-y-1.5 text-muted-foreground/90">
+              {lines.filter(l => l.trim()).map((line, li) => (
+                <li key={li}>
+                  {renderInline(line.replace(/^[-*]\s*/, ""), filings, onClickSource)}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (lines[0].match(/^\d+\.\s/)) {
+          return (
+            <ol key={bi} className="list-decimal pl-5 space-y-1.5 text-muted-foreground/90">
+              {lines.filter(l => l.trim()).map((line, li) => (
+                <li key={li}>
+                  {renderInline(line.replace(/^\d+\.\s*/, ""), filings, onClickSource)}
+                </li>
+              ))}
+            </ol>
+          );
+        }
+
         return (
-          <Streamdown key={`t-${i}`} mode="static">
-            {seg.content}
-          </Streamdown>
+          <p key={bi} className="text-muted-foreground/90">
+            {renderInline(trimmed, filings, onClickSource)}
+          </p>
         );
       })}
     </div>
@@ -879,7 +962,7 @@ export default function CompanyPage({ params }: { params: Promise<{ ticker: stri
                     flushTimerRef.current = setTimeout(() => {
                       setSummary(contentRef.current);
                       flushTimerRef.current = null;
-                    }, 80);
+                    }, 200);
                   }
                 }
                 if (parsed.error) {
@@ -1040,14 +1123,13 @@ export default function CompanyPage({ params }: { params: Promise<{ ticker: stri
                       {/* Content */}
                       <div className="p-5">
                         {streaming ? (
-                          // During streaming: use Streamdown for smooth animation
-                          <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed ai-summary tariff-highlights">
-                            <Streamdown isAnimating mode={undefined}>
-                              {summary}
+                          <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed tariff-highlights">
+                            <Streamdown mode="static">
+                              {stripCitations(summary)}
                             </Streamdown>
+                            <span className="streaming-cursor" />
                           </div>
                         ) : (
-                          // After streaming: use CitationRenderer with proper hover cards
                           <CitationRenderer
                             text={summary}
                             filings={filings}

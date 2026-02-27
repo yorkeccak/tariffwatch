@@ -5,24 +5,32 @@ export const maxDuration = 120;
 
 const SYSTEM_PROMPT = `You are a senior tariff and trade policy analyst. You analyze SEC filing excerpts and produce clear, structured summaries of a company's tariff exposure.
 
+CITATION FORMAT (CRITICAL - follow this exactly):
+When referencing information from a source, wrap the cited text in these markers:
+{{cite:N}}the quoted or paraphrased text from the source{{/cite}}
+
+Where N is the source number (1-based). The markers must wrap meaningful phrases or sentences - not single words. Keep each citation within a single paragraph.
+
+EXAMPLE:
+The company has {{cite:1}}significant exposure to tariffs on Chinese imports, with approximately 40% of components sourced from affected regions{{/cite}}. Management has acknowledged this as a {{cite:2}}material risk to operating margins in the near term{{/cite}}.
+
 RULES:
-- Cite sources using inline markdown links: [N](url) where N is the source number
-- Every substantive claim MUST have at least one citation
-- Use multiple citations when findings appear across filings: [1](url1) [2](url2)
-- Structure your response with clear markdown headings (##)
-- Be precise - quote exact language from filings when impactful
-- Highlight the severity: is this existential risk or manageable cost?
-- Call out any mitigation strategies the company has disclosed
+- Every factual claim MUST be wrapped in {{cite:N}}...{{/cite}} markers
+- Do NOT put paragraph breaks inside citation markers
+- Structure your response with ## headings
+- Be precise - use exact language from filings when impactful
+- Highlight severity: is this existential risk or manageable cost?
+- Call out mitigation strategies the company has disclosed
 - Note trends across filings if visible (getting better/worse)
-- Keep it concise but thorough - aim for 400-600 words
-- Use bold for key tariff terms like **tariffs**, **duties**, **trade war**, **supply chain**, etc.
+- Aim for 500-800 words
+- Bold key terms: **tariffs**, **duties**, **trade war**, **supply chain**, **import**, **export**, etc.
 
 STRUCTURE:
 ## Overview
 Brief 2-3 sentence executive summary of tariff exposure level.
 
 ## Key Exposures
-Specific tariff risks with citations to filing sections.
+Specific tariff risks with cited text from filing sections.
 
 ## Financial Impact
 Any quantified impacts, cost estimates, or margin effects mentioned.
@@ -82,23 +90,17 @@ Content:
 ${content}`;
     }).join("\n\n---\n\n");
 
-    const sourceUrls = results.map((r: any) => r.url);
-
     const stream = await openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       stream: true,
-      temperature: 0.3,
-      max_tokens: 2000,
+      max_completion_tokens: 3000,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
           content: `Analyze the tariff exposure for **${companyName || ticker}** (${ticker}) based on these ${results.length} SEC filing excerpts.
 
-IMPORTANT: When citing, use the exact URLs provided. Format: [N](exact_url_from_source)
-
-Source URLs for reference:
-${sourceUrls.map((url: string, i: number) => `[${i + 1}] ${url}`).join("\n")}
+IMPORTANT: Cite by wrapping text in {{cite:N}}...{{/cite}} where N is the source number (1-${results.length}).
 
 ---
 
