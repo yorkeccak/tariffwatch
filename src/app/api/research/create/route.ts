@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { query, ticker, companyName } = body;
+    const { query, ticker, companyName, alertEmail } = body;
 
     if (!query && !ticker) {
       return NextResponse.json({ error: "Query or ticker required" }, { status: 400 });
@@ -24,6 +24,13 @@ export async function POST(request: NextRequest) {
     }
 
     const valyu = new Valyu(apiKey);
+
+    // Build alert email object with callback URL
+    const appOrigin = process.env.NEXT_PUBLIC_APP_URL || "https://tariffwatch.valyu.ai";
+    const alertEmailObj = alertEmail
+      ? { email: alertEmail, custom_url: `${appOrigin}/company/${encodeURIComponent(ticker || "research")}?research={id}` }
+      : undefined;
+
     const researchQuery = query || `Comprehensive tariff exposure analysis for ${companyName || ticker} (${ticker}).
 
 Analyze the following aspects based on SEC filings (10-K, 10-Q), news, and economic data:
@@ -39,7 +46,7 @@ Analyze the following aspects based on SEC filings (10-K, 10-Q), news, and econo
 
 Provide specific quotes, section references, and filing dates wherever possible.`;
 
-    const response = await valyu.deepresearch.create({
+    const response: any = await valyu.deepresearch.create({
       query: researchQuery,
       mode: "fast",
       outputFormats: ["markdown"],
@@ -47,12 +54,17 @@ Provide specific quotes, section references, and filing dates wherever possible.
         searchType: "all",
         includedSources: ["valyu/valyu-sec-filings", "valyu/valyu-fred", "valyu/valyu-bls"],
       },
+      ...(alertEmailObj ? { alertEmail: alertEmailObj } : {}),
     });
+
+    // SDK may return taskId under different field names
+    const taskId = response.deepresearch_id || response.task_id || response.id;
 
     return NextResponse.json({
       success: true,
-      taskId: response.deepresearch_id,
-      status: response.status,
+      taskId,
+      status: response.status || "queued",
+      emailSent: !!alertEmail,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Research creation failed";
